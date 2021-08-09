@@ -1,0 +1,69 @@
+'''python
+import tensorflow as tf
+import matplotlib.pyplot as plt
+import os
+from tensorflow.keras.datasets import cifar10
+
+(x_train, y_train), (x_test, y_test) = cifar10.load_data()
+print('x_train shape:', x_train.shape)
+print(x_train.shape[0], 'train samples')
+print(x_test.shape[0], 'test samples')
+
+def write_tfrecords(x, y, filename):
+  writer = tf.io.TFRecordWriter(filename)
+  counter=0
+  for image, label in zip(x, y):
+    example = tf.train.Example(features=tf.train.Features(
+        feature={
+            'image': tf.train.Feature(bytes_list=tf.train.BytesList(value=[image.tobytes()])),
+            'label': tf.train.Feature(int64_list=tf.train.Int64List(value=[label])),
+        }))
+    writer.write(example.SerializeToString())
+    #if counter==5:
+    #  break
+    counter+=1
+  writer.close()
+  print(f'Записано {counter} значений в файл {filename}')
+  return
+
+
+def read_dataset(epochs, batch_size, channel, channel_name):
+  def _parse_image_function(example_proto):
+    features = tf.io.parse_single_example(example_proto, image_feature_description)
+    image = tf.io.decode_raw(features['image'], tf.uint8)
+    image.set_shape([3 * 32 * 32])
+    image = tf.reshape(image, [32, 32, 3])
+
+    label = tf.cast(features['label'], tf.int32)
+    label = tf.one_hot(label, 10)
+
+    return image, label
+  filenames = [os.path.join(channel, channel_name + '.tfrecords')]
+  dataset = tf.data.TFRecordDataset(filenames)
+  image_feature_description = {
+      'image': tf.io.FixedLenFeature([], tf.string),
+      'label': tf.io.FixedLenFeature([], tf.int64),
+  }
+  dataset = dataset.map(_parse_image_function, num_parallel_calls=10)
+  dataset = dataset.prefetch(10)
+  dataset = dataset.repeat(epochs)
+  dataset = dataset.shuffle(buffer_size=10 * batch_size)
+  dataset = dataset.batch(batch_size, drop_remainder=True)
+  return dataset
+
+write_tfrecords(x_test, y_test, '/content/construction/cifar_validation.tfrecords')
+write_tfrecords(x_train, y_train, '/content/construction/cifar_train.tfrecords')
+
+train_dataset = read_dataset(10, 100, '/content/construction/', 'cifar_train')
+validation_dataset = read_dataset(10, 100, '/content/construction/', 'cifar_validation')
+
+def show_batch(image_batch, label_batch):
+    plt.figure(figsize=(20, 20))
+    for n in range(25):
+        ax = plt.subplot(5, 5, n + 1)
+        plt.imshow(image_batch[n] / 255.0)
+        plt.axis("off")
+
+image_batch, label_batch = next(iter(train_dataset))
+
+show_batch(image_batch.numpy(), label_batch.numpy())
